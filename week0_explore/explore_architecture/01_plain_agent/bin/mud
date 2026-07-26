@@ -1,0 +1,131 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# bin/mud — session bridge for the plain agent.
+#
+# A human keeps one `nc localhost 4000` window open for the whole session,
+# so the MUD remembers who and where they are. The agent can't hold a
+# connection open across shell calls, so this wrapper stands in: each
+# invocation reconnects, logs in (CircleMUD's "Reconnecting..." drops us
+# back where we left off), sends ONE command line, prints the MUD's reply
+# to stdout, and exits.
+#
+# Usage:
+#   bin/mud "look"
+#   bin/mud north
+#   bin/mud "consider guard"
+#
+# Config — environment variables, or a .env file next to this agent:
+#   MUD_NAME      character name        (required)
+#   MUD_PASSWORD  character password    (required)
+#   MUD_HOST      default: localhost
+#   MUD_PORT      default: 4000
+#   MUD_QUIET     seconds of silence that marks end-of-reply (default 1.0)
+#   MUD_TIMEOUT   hard cap per read, seconds               (default 10)
+#   MUD_LOGIN_RETRIES  login attempts before giving up      (default 2)
+#
+# Requires Ruby >= 3.0 (mud_manager gemspec constraint). On macOS the system
+# Ruby (2.6) shadows Homebrew's on the PATH, so if we booted under an old
+# Ruby we re-exec ourselves under a newer one before loading the gem.
+if RUBY_VERSION < "3.0"
+  newer = [
+    "/opt/homebrew/opt/ruby/bin/ruby",
+    "/usr/local/opt/ruby/bin/ruby",
+  ].find { |p| File.executable?(p) }
+
+  if newer
+    exec(newer, __FILE__, *ARGV)
+  else
+    abort "bin/mud needs Ruby >= 3.0 (found #{RUBY_VERSION}); install with `brew install ruby`"
+  end
+end
+
+require_relative "../../../mud_manager/lib/mud_manager"
+
+AGENT_DIR = File.expand_path("..", __dir__)
+
+# Minimal .env loader — no gem dependency. Handles `KEY=value` and # comments.
+def load_dotenv(path)
+  return unless File.file?(path)
+
+  File.foreach(path) do |line|
+    line = line.strip
+    next if line.empty? || line.start_with?("#")
+
+    key, _, val = line.partition("=")
+    key = key.strip
+    next if key.empty?
+
+    val = val.strip.gsub(/\A["']|["']\z/, "")
+    ENV[key] ||= val
+  end
+end
+
+load_dotenv(File.join(AGENT_DIR, ".env"))
+
+# The MUD sends terminal color codes (e.g. "\e[0;33m") that are meaningless
+# noise once printed outside a real terminal / read by an agent.
+ANSI_RE = /\e\[[0-9;]*[A-Za-z]/.freeze
+def strip_ansi(text)
+  text.gsub(ANSI_RE, "")
+end
+
+command = ARGV.join(" ").strip
+if command.empty?
+  warn %(usage: bin/mud "<mud command>"   e.g. bin/mud "look")
+  exit 2
+end
+
+username = ENV["MUD_NAME"].to_s
+password = ENV["MUD_PASSWORD"].to_s
+if username.empty? || password.empty?
+  warn "MUD_NAME and MUD_PASSWORD must be set (env vars, or a .env in #{AGENT_DIR})"
+  exit 2
+end
+
+host          = ENV.fetch("MUD_HOST", "localhost")
+port          = Integer(ENV.fetch("MUD_PORT", "4000"))
+quiet         = Float(ENV.fetch("MUD_QUIET", "1.0"))
+timeout       = Float(ENV.fetch("MUD_TIMEOUT", "10"))
+login_retries = Integer(ENV.fetch("MUD_LOGIN_RETRIES", "2"))
+
+# tbaMUD runs a few seconds of client-detection negotiation before the name
+# prompt appears; on an occasional slow round-trip this can eat into the
+# login handshake's read timeouts. Rather than guess at extra sleeps, just
+# retry the whole connect+login on a timeout — cheap and self-correcting.
+session = nil
+attempt = 0
+begin
+  attempt += 1
+  session = MudManager::Session.new(host: host, port: port, timeout: timeout)
+  session.open
+  session.login(username, password)
+rescue MudManager::Session::Timeout
+  session&.close
+  retry if attempt < login_retries
+  warn "login timed out after #{attempt} attempt(s)"
+  exit 1
+rescue MudManager::Session::LoginError => e
+  warn "login failed: #{e.message}"
+  exit 1
+rescue MudManager::Session::Error => e
+  warn "session error: #{e.message}"
+  exit 1
+end
+
+begin
+  # `login`'s "Reconnecting" path leaves the just-completed status line
+  # (e.g. "23H 100M 84V (news) (motd) > ") sitting in the buffer — drop it
+  # so the command we're about to send starts from a clean slate.
+  session.drain
+
+  session.send_command(command)
+  output = strip_ansi(session.read_until_quiet(quiet, timeout: timeout))
+  print output
+  print "\n" unless output.end_with?("\n")
+rescue MudManager::Session::Error => e
+  warn "session error: #{e.message}"
+  exit 1
+ensure
+  session.close
+end
