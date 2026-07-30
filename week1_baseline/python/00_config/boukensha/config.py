@@ -6,13 +6,15 @@ from dotenv import load_dotenv
 
 
 class Config:
-    # The .boukensha config directory is resolved in this order:
-    #   1. BOUKENSHA_DIR environment variable (set before loading .env)
-    #   2. ~/.boukensha  (default)
-    DEFAULT_DIR = str(Path.home() / ".boukensha")
+    """The .boukensha config directory is resolved in this order:
+    1. BOUKENSHA_DIR environment variable (set before loading .env)
+    2. ~/.boukensha  (default)
+    """
+
+    DEFAULT_DIR = Path.home() / ".boukensha"
 
     # Default prompts shipped alongside the library code.
-    PROMPTS_DIR = str(Path(__file__).resolve().parent.parent / "prompts")
+    PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
     def __init__(self):
         self.dir = self._resolve_dir()
@@ -21,18 +23,19 @@ class Config:
 
     # ---------- tasks -----------------------------------------------------
 
-    # With no argument: returns the full tasks dict from settings.yaml.
-    # With a name: returns that task's settings dict, e.g. tasks("player").
     def tasks(self, name=None):
+        """With no argument: returns the full tasks dict from settings.yaml.
+        With a name: returns that task's settings dict, e.g. tasks("player").
+        """
         all_tasks = self.dig("tasks") or {}
-        return all_tasks if name is None else all_tasks.get(str(name))
+        return all_tasks.get(name) if name else all_tasks
 
-    # The user's prompts directory for task prompt overrides.
     @property
     def user_prompts_dir(self):
+        """The user's prompts directory for task prompt overrides."""
         return os.path.join(self.dir, "prompts")
 
-    # ---------- MUD connection ---------------------------------------------
+    # ---------- MUD connection --------------------------------------------
 
     @property
     def mud_host(self):
@@ -50,23 +53,23 @@ class Config:
     def mud_password(self):
         return self.dig("mud", "password")
 
-    # ---------- low-level helpers -------------------------------------------
+    # ---------- low-level helpers -----------------------------------------
 
-    # Fetch a nested key path from settings, e.g. dig("mud", "host")
     def dig(self, *keys):
+        """Fetch a nested key path from settings, e.g. dig("mud", "host")"""
         node = self.settings
         for key in keys:
-            if not isinstance(node, dict):
+            if isinstance(node, dict):
+                node = node.get(key)
+            else:
                 return None
-            node = node.get(str(key))
         return node
 
     def __str__(self):
         return f"#<Boukensha::Config dir={self.dir} tasks={','.join(self.tasks().keys())}>"
 
-    __repr__ = __str__
-
-    # ---------- internals ----------------------------------------------
+    def __repr__(self):
+        return str(self)
 
     def _resolve_dir(self):
         raw = os.environ.get("BOUKENSHA_DIR") or self.DEFAULT_DIR
@@ -80,6 +83,5 @@ class Config:
     def _load_settings(self):
         settings_file = os.path.join(self.dir, "settings.yaml")
         if os.path.exists(settings_file):
-            with open(settings_file) as f:
-                return yaml.safe_load(f) or {}
+            return yaml.safe_load(Path(settings_file).read_text()) or {}
         return {}
