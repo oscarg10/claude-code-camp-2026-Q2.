@@ -73,5 +73,5 @@ This translation is a real gotcha in production harnesses, BOUKENSHA makes it vi
 ## Run Example
 
 ```sh
-./week1_baseline/bin/01_the_registry 
+./week1_baseline/bin/02_the_registry 
 ```
