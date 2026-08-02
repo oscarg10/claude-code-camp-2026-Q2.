@@ -184,3 +184,7 @@ Anthropic, Ollama, and OpenAI all use `assistant` for the model's turn. Gemini c
 ```sh
 ./week1_baseline/bin/03_prompt_builder 
 ```
+
+## Note for Future
+
+At the moment, we have multiple models as options in the code. However, we will only use Claude for now. I do need to get the keys from another provider. 
