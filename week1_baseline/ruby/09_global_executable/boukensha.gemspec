@@ -7,8 +7,8 @@ Gem::Specification.new do |spec|
   spec.description = "Step-by-step coding harness framework. " \
                      "Set BOUKENSHA_PATH to load a specific lesson step, " \
                      "or run with defaults to use the bundled release."
-  spec.authors     = ["Andrew Brown"]
-  spec.email       = ["andrew@exampro.co"]
+  spec.authors     = ["Oscar Gordillo"]
+  spec.email       = ["oscar_andres16@hotmail.com"]
   spec.license     = "MIT"
 
   spec.required_ruby_version = ">= 3.0"
