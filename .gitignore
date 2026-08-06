@@ -10,3 +10,6 @@
 __pycache__/
 *.pyc
 *.egg-info/
+
+# Built gem artifacts (produced by `gem build`, shouldn't be committed)
+*.gem
